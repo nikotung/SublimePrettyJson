@@ -28,6 +28,26 @@
         "command": "pretty_json_validate"
     },
     {
+        "caption": "Pretty JSON: Format JSON5/JSONC",
+        "command": "pretty_json_json5"
+    },
+    {
+        "caption": "Pretty JSON: Format and Sort JSON5/JSONC",
+        "command": "pretty_json_json5_and_sort"
+    },
+    {
+        "caption": "Pretty JSON: Format JSON5/JSONC Lines",
+        "command": "pretty_json_json5_lines"
+    },
+    {
+        "caption": "Pretty JSON: Minify JSON5/JSONC",
+        "command": "un_pretty_json_json5"
+    },
+    {
+        "caption": "Pretty JSON: Validate JSON5/JSONC",
+        "command": "pretty_json_json5_validate"
+    },
+    {
         "args":
         {
             "base_file": "${packages}/Pretty JSON/Pretty JSON.sublime-settings",

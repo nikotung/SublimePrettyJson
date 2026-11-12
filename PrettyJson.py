@@ -12,6 +12,7 @@ import sublime_plugin
 
 from .lib import simplejson as json
 from .lib.simplejson import OrderedDict
+from .lib import json5 as json5util
 
 
 PREVIOUS_CONTENT = [str(), str()]
@@ -30,12 +31,16 @@ class PrettyJsonBaseCommand:
     phantom_set = sublime.PhantomSet
     phantoms = list()
     force_sorting = False
+    allow_json5 = False
+    preserve_comments = False
     json_char_matcher = re.compile(r"char (\d+)")
     brace_newline = re.compile(r'^(^([ \t]*)(\"[^\"]*\"):)\s*([{])', re.MULTILINE)
     bracket_newline = re.compile(r'^(^([ \t]*)(\"[^\"]*\"):)\s*([\[])', re.MULTILINE)
 
     @staticmethod
-    def json_loads(selection: str, object_pairs_hook=OrderedDict):
+    def json_loads(selection: str, object_pairs_hook=OrderedDict, json5: bool = False):
+        if json5:
+            selection = json5util.to_json(selection)
         return json.loads(
             selection, object_pairs_hook=object_pairs_hook, parse_float=decimal.Decimal
         )
@@ -226,12 +231,24 @@ class PrettyJsonValidate(PrettyJsonBaseCommand, sublime_plugin.TextCommand):
                 continue
 
             try:
-                self.json_loads(self.view.substr(region), self.duplicate_key_hook)
+                self.json_loads(
+                    self.view.substr(region),
+                    self.duplicate_key_hook,
+                    json5=self.allow_json5,
+                )
             except Exception as ex:
                 self.show_exception(region=region, msg=ex)
                 return
 
             sublime.status_message("JSON Valid")
+
+
+class PrettyJsonJson5ValidateCommand(PrettyJsonValidate):
+    """
+    Description: Validate JSON5/JSONC
+    """
+
+    allow_json5 = True
 
 
 class PrettyJsonCommand(PrettyJsonBaseCommand, sublime_plugin.TextCommand):
@@ -255,23 +272,43 @@ class PrettyJsonCommand(PrettyJsonBaseCommand, sublime_plugin.TextCommand):
             selection_text = self.view.substr(region)
             try:
                 obj = {}
-                if settings.get("abort_format_on_duplicate_key", False):
-                    try:
-                        self.json_loads(selection_text, self.duplicate_key_hook)
-                    except Exception as ex:
-                        self.show_exception(region=region, msg=ex)
-                        return
+                if self.preserve_comments:
+                    # validate first (raises on invalid input), then re-indent
+                    # token-by-token so comments and value spelling survive
+                    hook = (
+                        self.duplicate_key_hook
+                        if settings.get("abort_format_on_duplicate_key", False)
+                        else OrderedDict
+                    )
+                    self.json_loads(selection_text, hook, json5=True)
+                    json_text = json5util.format(
+                        selection_text, indent=settings.get("indent", 2)
+                    )
                 else:
-                    obj = self.json_loads(selection_text)
-                json_text = self.json_dumps(obj=obj, minified=False, force_sorting=self.force_sorting)
+                    if settings.get("abort_format_on_duplicate_key", False):
+                        try:
+                            self.json_loads(
+                                selection_text,
+                                self.duplicate_key_hook,
+                                json5=self.allow_json5,
+                            )
+                        except Exception as ex:
+                            self.show_exception(region=region, msg=ex)
+                            return
+                    else:
+                        obj = self.json_loads(selection_text, json5=self.allow_json5)
+                    json_text = self.json_dumps(obj=obj, minified=False, force_sorting=self.force_sorting)
                 if not entire_file and settings.get("reindent_block", False):
                     json_text = self.reindent(json_text, region)
 
                 self.view.replace(edit, region, json_text)
-                if entire_file:
+                if entire_file and not self.preserve_comments:
                     self.syntax_to_json()
 
             except Exception as ex:
+                if self.preserve_comments:
+                    self.show_exception(region=region, msg=ex)
+                    continue
                 try:
                     count_single_quotes = re.findall(r"(\'[^\']+\'?)", selection_text)
                     amount_of_double_quotes = re.findall(
@@ -282,7 +319,7 @@ class PrettyJsonCommand(PrettyJsonBaseCommand, sublime_plugin.TextCommand):
                         modified_text = re.sub(
                             r"(?:\'([^\']+)\'?)", r'"\1"', selection_text
                         )
-                        obj = self.json_loads(modified_text)
+                        obj = self.json_loads(modified_text, json5=self.allow_json5)
                         json_text = self.json_dumps(obj=obj, minified=False)
 
                         if not entire_file and settings.get("reindent_block", False):
@@ -298,6 +335,15 @@ class PrettyJsonCommand(PrettyJsonBaseCommand, sublime_plugin.TextCommand):
                         self.show_exception(region=region, msg=ex)
                 except Exception as ex:
                     self.show_exception(region=region, msg=ex)
+
+
+class PrettyJsonJson5Command(PrettyJsonCommand):
+    """
+    Description: Pretty Print JSON5/JSONC, preserving comments
+    """
+
+    allow_json5 = True
+    preserve_comments = True
 
 
 class PrettyJsonLinesCommand(PrettyJsonCommand, sublime_plugin.TextCommand):
@@ -331,7 +377,7 @@ class PrettyJsonLinesCommand(PrettyJsonCommand, sublime_plugin.TextCommand):
                 selection_text = ""
                 try:
                     selection_text = self.view.substr(jsonl)
-                    obj = self.json_loads(selection_text)
+                    obj = self.json_loads(selection_text, json5=self.allow_json5)
                     self.view.replace(edit, jsonl, self.json_dumps(obj))
 
                     if selected_entire_file:
@@ -351,7 +397,9 @@ class PrettyJsonLinesCommand(PrettyJsonCommand, sublime_plugin.TextCommand):
                             selection_text_modified = re.sub(
                                 r"(?:\'([^\']+)\'?)", r'"\1"', selection_text
                             )
-                            obj = self.json_loads(selection_text_modified)
+                            obj = self.json_loads(
+                                selection_text_modified, json5=self.allow_json5
+                            )
                             self.view.replace(edit, jsonl, self.json_dumps(obj))
 
                             if selected_entire_file:
@@ -359,6 +407,14 @@ class PrettyJsonLinesCommand(PrettyJsonCommand, sublime_plugin.TextCommand):
                     except Exception as ex:
                         error_count += 1
                         self.show_exception(msg=ex)
+
+
+class PrettyJsonJson5LinesCommand(PrettyJsonLinesCommand):
+    """
+    Description: Pretty print json5/jsonc lines
+    """
+
+    allow_json5 = True
 
 
 class PrettyJsonAndSortCommand(PrettyJsonCommand, sublime_plugin.TextCommand):
@@ -370,6 +426,18 @@ class PrettyJsonAndSortCommand(PrettyJsonCommand, sublime_plugin.TextCommand):
         self.force_sorting = True
         PrettyJsonCommand.run(self, edit)
         self.force_sorting = False
+
+
+class PrettyJsonJson5AndSortCommand(PrettyJsonAndSortCommand):
+    """
+    Description: Pretty print json5/jsonc.
+
+    Sorting is not supported when preserving comments, behaves like
+    pretty_json_json5.
+    """
+
+    allow_json5 = True
+    preserve_comments = True
 
 
 class UnPrettyJsonCommand(PrettyJsonBaseCommand, sublime_plugin.TextCommand):
@@ -388,12 +456,39 @@ class UnPrettyJsonCommand(PrettyJsonBaseCommand, sublime_plugin.TextCommand):
                 continue
 
             try:
-                obj = self.json_loads(self.view.substr(region))
+                obj = self.json_loads(self.view.substr(region), json5=self.allow_json5)
                 self.view.replace(edit, region, self.json_dumps(obj=obj, minified=True))
 
                 if entire_file:
                     self.syntax_to_json()
 
+            except Exception as ex:
+                self.show_exception(region=region, msg=ex)
+
+
+class UnPrettyJsonJson5Command(UnPrettyJsonCommand):
+    """
+    Description: Compress/minify JSON5/JSONC, preserving comments
+    """
+
+    allow_json5 = True
+    preserve_comments = True
+
+    def run(self, edit):
+        self.clear_phantoms()
+        regions = self.view.sel()
+        for region in regions:
+            region, _ = self.get_selection_from_region(
+                region=region, regions_length=len(regions), view=self.view
+            )
+            if region is None:
+                continue
+
+            selection_text = self.view.substr(region)
+            try:
+                # validate first (raises on invalid input)
+                self.json_loads(selection_text, json5=True)
+                self.view.replace(edit, region, json5util.minify(selection_text))
             except Exception as ex:
                 self.show_exception(region=region, msg=ex)
 
@@ -618,7 +713,7 @@ class PrettyJsonGotoSymbolCommand(PrettyJsonBaseCommand, sublime_plugin.TextComm
 
         content = self.view.substr(sublime.Region(0, self.view.size()))
         try:
-            json_data = self.json_loads(content)
+            json_data = self.json_loads(content, json5=self.allow_json5)
             self.generate_items(json_data, "")
             sublime.active_window().show_quick_panel(self.items, self.goto)
         except Exception as ex:

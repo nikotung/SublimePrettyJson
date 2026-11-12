@@ -64,6 +64,38 @@ find "Pretty JSON: Minify JSON"
 this will make selection or full buffer as single line 
 JSON which later you can use in command lines (curl/httpie) or somewhere else...
 
+### Format / Minify / Validate JSON5 & JSONC
+
+Using Command Palette <kbd>Ctrl+Shift+P</kbd>
+find "Pretty JSON: Format JSON5/JSONC"
+(you can search for part of it like 'json5').
+
+These commands accept the JSON5/JSONC extensions:
+comments (`//` and `/* */`), single-quoted strings, unquoted keys,
+trailing commas, hexadecimal numbers and relaxed number syntax (`+1`, `.5`, `2.`).
+
+**Comments are preserved.** "Format JSON5/JSONC" and "Minify JSON5/JSONC"
+re-indent/minify the text token-by-token instead of re-serializing it,
+so comments, key order, trailing commas and the original number spelling
+survive formatting. (Single-quoted strings are normalized to double quotes.)
+Because the result may still contain comments, the syntax is not switched
+to strict JSON after formatting. Note: key sorting is not available for
+JSON5/JSONC since reordering keys would not survive comments.
+
+- `pretty_json_json5` - "Pretty JSON: Format JSON5/JSONC"
+- `pretty_json_json5_and_sort` - "Pretty JSON: Format and Sort JSON5/JSONC"
+- `pretty_json_json5_lines` - "Pretty JSON: Format JSON5/JSONC Lines"
+- `un_pretty_json_json5` - "Pretty JSON: Minify JSON5/JSONC"
+- `pretty_json_json5_validate` - "Pretty JSON: Validate JSON5/JSONC"
+
+To map a key combination like <kbd>Ctrl+Alt+J</kbd> to the JSON5 format command,
+you can add a setting like this to your .sublime-keymap file
+(eg: `Packages/User/Default (Windows).sublime-keymap`):
+
+```json
+  { "keys": [ "ctrl+alt+j" ], "command": "pretty_json_json5" }
+```
+
 To map a key combination like <kbd>Ctrl+Alt+M</kbd> to the Minify command, 
 you can add a setting like this to your .sublime-keymap file 
 (eg: `Packages/User/Default (Windows).sublime-keymap`):
@@ -75,6 +107,8 @@ you can add a setting like this to your .sublime-keymap file
 #### List of commands that can be mapped to shortcuts
 - `pretty_json`
 - `un_pretty_json`
+- `pretty_json_json5`
+- `un_pretty_json_json5`
 - `pretty_json_goto_symbol`
 
 ### Convert JSON to XML
